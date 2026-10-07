@@ -1,0 +1,121 @@
+name: CI/CD TaskManager API
+
+# Se ejecuta con cada push o pull request a la rama main
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/taskmanager-api
+
+jobs:
+  # ---------------------------------------------------------------
+  # 1. PRUEBAS: Jest + Supertest con reporte de cobertura (mín. 70%)
+  # ---------------------------------------------------------------
+  test:
+    name: 1. Pruebas y cobertura
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Ejecutar pruebas con cobertura
+        # Si la cobertura baja de 70% Jest falla y el pipeline se detiene aquí
+        run: npm run test:coverage
+
+      - name: Publicar resumen de cobertura
+        if: always()
+        run: |
+          echo "## Cobertura de código" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          npx jest --runInBand --coverage --coverageReporters=text-summary --silent 2>&1 | sed -n '/Coverage summary/,/====*$/p' >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------
+  # 2. BUILD & PUSH: compila la imagen y la sube a Docker Hub
+  # ---------------------------------------------------------------
+  build-and-push:
+    name: 2. Build y push a Docker Hub
+    needs: test                       # solo corre si las pruebas pasaron
+    if: github.event_name == 'push'   # en pull requests solo se prueba
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Iniciar sesión en Docker Hub (Personal Access Token)
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compilar y publicar la imagen (:latest y :sha)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ---------------------------------------------------------------
+  # 3. DEPLOY: entra a la EC2 por SSH y levanta la nueva versión
+  # ---------------------------------------------------------------
+  deploy:
+    name: 3. Despliegue en AWS EC2
+    needs: build-and-push
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Desplegar por SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          IMAGE: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          GIT_SHA: ${{ github.sha }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: IMAGE,GIT_SHA
+          script: |
+            set -e
+            echo "Descargando $IMAGE"
+            sudo docker pull "$IMAGE"
+
+            echo "Deteniendo y eliminando el contenedor anterior"
+            sudo docker stop taskmanager-api 2>/dev/null || true
+            sudo docker rm taskmanager-api 2>/dev/null || true
+
+            echo "Levantando la nueva versión en el puerto 80"
+            sudo docker run -d --name taskmanager-api \
+              --restart unless-stopped \
+              -p 80:3000 -p 6061:6061 \
+              -e GIT_SHA="$GIT_SHA" \
+              -v taskmanager-data:/data \
+              "$IMAGE"
+
+            echo "Verificando /api/health"
+            for i in $(seq 1 15); do
+              if curl -fsS http://localhost/api/health; then echo; echo "Despliegue OK"; break; fi
+              if [ "$i" = 15 ]; then echo "La API no respondió"; sudo docker logs taskmanager-api; exit 1; fi
+              sleep 2
+            done
+
+            # Limpia imágenes viejas para no llenar el disco de la EC2
+            sudo docker image prune -af --filter "until=24h" || true

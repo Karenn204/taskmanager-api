@@ -1,0 +1,30 @@
+# Dependencias (se instalan dentro de la imagen)
+node_modules
+npm-debug.log*
+
+# Datos locales y respaldos
+app.db
+*.db
+backup-*.db
+
+# Variables de entorno y secretos
+.env
+.env.*
+*.pem
+
+# Pruebas, cobertura y logs
+coverage
+*.test.js
+logs
+*.log
+
+# Git, CI y documentación
+.git
+.gitignore
+.github
+README.md
+Dockerfile
+.dockerignore
+.vscode
+.idea
+.DS_Store
