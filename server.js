@@ -44,8 +44,8 @@ const formatResponse = (statusCode, data) => ({
 // DEMO DEL PIPELINE: cambia estos valores, haz git push y en menos de un minuto
 // http://<IP_EC2>/api/health mostrará el nuevo texto.
 const HEALTH_INFO = {
-  autor: 'KarenFlores',
-  mensaje: 'Pipeline CI/CD funcionando',
+  autor: 'NayeFlores',
+  mensaje: 'Probando cambios en el pipeline de CI/CD con GitHub Actions y Docker',
   version: '1.0.0'
 };
 
