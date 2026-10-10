@@ -52,7 +52,7 @@ const HEALTH_INFO = {
 // 0. GET - Health check (estado del servicio)
 app.get('/api/health', (req, res) => {
   res.json(formatResponse(200, {
-    status: 'ok',
+    status: 'ok 2',
     ...HEALTH_INFO,
     commit: process.env.GIT_SHA || 'local',
     timestamp: new Date().toISOString()
