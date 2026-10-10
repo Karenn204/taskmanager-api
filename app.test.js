@@ -228,7 +228,7 @@ describe('--- PRUEBAS UNITARIAS Y DE INTEGRACIÓN: TASKMANAGER API ---', () => {
       const res = await request(app).get('/api/health');
 
       expect(res.statusCode).toBe(200);
-      expect(res.body.data[0]).toHaveProperty('status', 'ok');
+      expect(res.body.data[0]).toHaveProperty('status', 'ok 2');
       expect(res.body.data[0]).toHaveProperty('autor');
       expect(res.body.data[0]).toHaveProperty('version');
     });
